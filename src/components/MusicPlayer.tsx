@@ -66,6 +66,8 @@ const audioContextManager = {
 function AudioVisualizer({ audioRef }: AudioVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameId = useRef<number | undefined>(undefined);
+  const lastDrawTime = useRef<number>(0);
+  const FRAME_INTERVAL = 50; // 限制为每秒20帧
 
   useEffect(() => {
     if (!audioRef.current || !canvasRef.current) return;
@@ -90,13 +92,20 @@ function AudioVisualizer({ audioRef }: AudioVisualizerProps) {
 
     if (!analyserNode) return;
 
-    // 类型断言确保 TypeScript 知道 analyserNode 是 AnalyserNode 类型
     const analyser = analyserNode as AnalyserNode;
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
 
-    const draw = () => {
+    const draw = (timestamp: number) => {
       if (!canvas || !ctx || !analyser) return;
+
+      // 限制帧率
+      if (timestamp - lastDrawTime.current < FRAME_INTERVAL) {
+        animationFrameId.current = requestAnimationFrame(draw);
+        return;
+      }
+
+      lastDrawTime.current = timestamp;
 
       const width = canvas.width;
       const height = canvas.height;
@@ -106,20 +115,22 @@ function AudioVisualizer({ audioRef }: AudioVisualizerProps) {
       
       ctx.clearRect(0, 0, width, height);
       
-      // 绘制音频柱状图
+      // 优化渲染性能
+      ctx.beginPath();
       dataArray.forEach((value, index) => {
         const barHeight = (value / 255) * height * 0.8;
         const x = index * barWidth;
-        const hue = ((index / bufferLength) * 360) + ((Date.now() / 50) % 360);
+        const hue = ((index / bufferLength) * 360) + ((Date.now() / 100) % 360); // 降低颜色变化速度
         
-        ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.7)`;
+        ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.5)`; // 降低透明度
         ctx.fillRect(x, height - barHeight, barWidth - 2, barHeight);
       });
+      ctx.fill();
 
       animationFrameId.current = requestAnimationFrame(draw);
     };
 
-    draw();
+    draw(0);
 
     return () => {
       if (animationFrameId.current) {
@@ -131,9 +142,9 @@ function AudioVisualizer({ audioRef }: AudioVisualizerProps) {
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full opacity-50"
-      width={800}
-      height={400}
+      className="absolute inset-0 w-full h-full opacity-30" // 降低整体不透明度
+      width={400} // 降低canvas分辨率
+      height={200}
     />
   );
 }
@@ -148,7 +159,6 @@ export default function MusicPlayer() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // 示例歌单，你可以替换为自己的歌单
   const playlist: Song[] = [
@@ -256,19 +266,13 @@ export default function MusicPlayer() {
   };
 
   const handleClick = () => {
-    if (clickTimeoutRef.current) {
-      // 双击
-      clearTimeout(clickTimeoutRef.current);
-      clickTimeoutRef.current = null;
-      setIsFullyExpanded(true);
-      setIsExpanded(true);
-    } else {
-      // 单击
-      clickTimeoutRef.current = setTimeout(() => {
-        setIsExpanded(!isExpanded);
-        clickTimeoutRef.current = null;
-      }, 200);
-    }
+    setIsExpanded(!isExpanded);
+  };
+
+  // 处理全屏模式的打开
+  const handleOpenFullScreen = () => {
+    setIsFullyExpanded(true);
+    setIsExpanded(true);
   };
 
   // 处理全屏模式的关闭
@@ -313,7 +317,7 @@ export default function MusicPlayer() {
         audio.removeEventListener('ended', handleEnded);
       };
     }
-  }, [currentSongIndex, isPlaying, playNext, playlist, volume]);
+  }, [currentSongIndex]);
 
   // 监听音量变化
   useEffect(() => {
@@ -347,13 +351,13 @@ export default function MusicPlayer() {
   return (
     <>
       {/* 全屏遮罩 */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {isFullyExpanded && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-lg z-40"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
             onClick={handleCloseFullScreen}
           />
         )}
@@ -361,24 +365,24 @@ export default function MusicPlayer() {
 
       {/* 音乐播放器 */}
       <motion.div
-        initial={{ x: '100%' }}
+        initial={false}
         animate={{ 
-          x: 0,
-          scale: isFullyExpanded ? 1 : 1,
-          transition: { type: "spring", stiffness: 100 }
+          x: isFullyExpanded ? '-50%' : 0,
+          y: isFullyExpanded ? '-50%' : 0,
+          scale: 1,
+          transition: { type: "spring", stiffness: 50 }
         }}
         className={`fixed z-50 ${
           isFullyExpanded 
-            ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2' 
+            ? 'top-1/2 left-1/2' 
             : 'bottom-8 right-8'
         }`}
       >
         <motion.div
-          className={`bg-white/90 backdrop-blur-lg rounded-2xl shadow-lg ${
-            isFullyExpanded ? 'w-[800px] h-[500px]' : 'p-4'
+          className={`bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg ${
+            isFullyExpanded ? 'w-[600px] h-[400px]' : 'p-4'
           }`}
-          whileHover={{ scale: isFullyExpanded ? 1 : 1.02 }}
-          whileTap={{ scale: isFullyExpanded ? 1 : 0.98 }}
+          initial={false}
         >
           {isFullyExpanded ? (
             // 完全展开的界面
@@ -604,7 +608,7 @@ export default function MusicPlayer() {
                   whileHover={{ opacity: 1 }}
                   className="absolute inset-0 flex items-center justify-center bg-black/30 text-white text-xs font-medium"
                 >
-                  {isExpanded ? (isFullyExpanded ? '点击收起' : '双击展开') : '点击展开'}
+                  {isExpanded ? '点击收起' : '点击展开'}
                 </motion.div>
               </motion.div>
 
@@ -714,6 +718,28 @@ export default function MusicPlayer() {
                             />
                           </svg>
                         </motion.button>
+
+                        {/* 添加展开按钮 */}
+                        <motion.button
+                          onClick={handleOpenFullScreen}
+                          className="p-2 hover:text-blue-600"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                        >
+                          <svg
+                            className="w-6 h-6"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                            />
+                          </svg>
+                        </motion.button>
                       </div>
                     </div>
 
@@ -740,7 +766,7 @@ export default function MusicPlayer() {
           )}
         </motion.div>
       </motion.div>
-      <audio ref={audioRef} />
+      <audio ref={audioRef} preload="metadata" /> {/* 添加preload="metadata"属性 */}
     </>
   );
 } 
