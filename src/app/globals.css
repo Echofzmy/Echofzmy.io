@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 255, 255, 255;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--background-start-rgb)),
+    rgb(var(--background-end-rgb))
+  );
+}
+
+.bg-grid-pattern {
+  background-image: linear-gradient(to right, #000 1px, transparent 1px),
+    linear-gradient(to bottom, #000 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* 添加一些平滑的过渡效果 */
+* {
+  @apply transition-colors duration-200;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-blue-600/50 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-blue-600;
+}
+
+/* 添加文字选中效果 */
+::selection {
+  @apply bg-blue-600/20;
+}
+
+/* 添加链接悬停效果 */
+a {
+  @apply transition-all duration-200;
+}
+
+a:hover {
+  @apply text-blue-600;
+}
+
+/* 添加按钮点击效果 */
+button {
+  @apply transform transition-all duration-200;
+}
+
+button:active {
+  @apply scale-95;
+}
+
+/* 添加卡片悬停效果 */
+.hover-card {
+  @apply transform transition-all duration-300;
+}
+
+.hover-card:hover {
+  @apply -translate-y-1 shadow-lg;
+}

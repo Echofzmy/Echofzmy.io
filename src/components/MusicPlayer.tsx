@@ -1,0 +1,746 @@
+'use client';
+import { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
+
+interface Song {
+  title: string;
+  artist: string;
+  url: string;
+  coverImage: string;
+}
+
+interface AudioVisualizerProps {
+  audioRef: React.RefObject<HTMLAudioElement | null>;
+}
+
+// 为 WebKit AudioContext 添加类型声明
+declare global {
+  interface Window {
+    webkitAudioContext: typeof AudioContext;
+  }
+}
+
+// 创建一个全局的 AudioContext 和 MediaElementSource 管理器
+const audioContextManager = {
+  context: null as AudioContext | null,
+  source: null as MediaElementAudioSourceNode | null,
+  analyser: null as AnalyserNode | null,
+  initialize(audio: HTMLAudioElement) {
+    if (!this.context) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      this.context = new AudioContextClass();
+    }
+    if (!this.source) {
+      this.source = this.context.createMediaElementSource(audio);
+    }
+    if (!this.analyser) {
+      this.analyser = this.context.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.source.connect(this.analyser);
+      this.analyser.connect(this.context.destination);
+    }
+    return {
+      context: this.context,
+      source: this.source,
+      analyser: this.analyser
+    };
+  },
+  cleanup() {
+    if (this.analyser) {
+      this.analyser.disconnect();
+      this.analyser = null;
+    }
+    if (this.source) {
+      this.source.disconnect();
+      this.source = null;
+    }
+    if (this.context) {
+      this.context.close();
+      this.context = null;
+    }
+  }
+};
+
+// 音频可视化组件
+function AudioVisualizer({ audioRef }: AudioVisualizerProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationFrameId = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!audioRef.current || !canvasRef.current) return;
+
+    const audio = audioRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let analyserNode: AnalyserNode | null = null;
+
+    const initAudio = () => {
+      try {
+        const { analyser } = audioContextManager.initialize(audio);
+        analyserNode = analyser;
+      } catch (error) {
+        console.error('Error initializing audio:', error);
+      }
+    };
+
+    initAudio();
+
+    if (!analyserNode) return;
+
+    // 类型断言确保 TypeScript 知道 analyserNode 是 AnalyserNode 类型
+    const analyser = analyserNode as AnalyserNode;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const draw = () => {
+      if (!canvas || !ctx || !analyser) return;
+
+      const width = canvas.width;
+      const height = canvas.height;
+      const barWidth = width / bufferLength * 2.5;
+      
+      analyser.getByteFrequencyData(dataArray);
+      
+      ctx.clearRect(0, 0, width, height);
+      
+      // 绘制音频柱状图
+      dataArray.forEach((value, index) => {
+        const barHeight = (value / 255) * height * 0.8;
+        const x = index * barWidth;
+        const hue = ((index / bufferLength) * 360) + ((Date.now() / 50) % 360);
+        
+        ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.7)`;
+        ctx.fillRect(x, height - barHeight, barWidth - 2, barHeight);
+      });
+
+      animationFrameId.current = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
+    };
+  }, [audioRef]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 w-full h-full opacity-50"
+      width={800}
+      height={400}
+    />
+  );
+}
+
+export default function MusicPlayer() {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentSongIndex, setCurrentSongIndex] = useState(0);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isFullyExpanded, setIsFullyExpanded] = useState(false);
+  const [volume, setVolume] = useState(0.1);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 示例歌单，你可以替换为自己的歌单
+  const playlist: Song[] = [
+    {
+      title: 'Under Bright Lights (ft. Indy Skies)',
+      artist: 'TWERL & Ekko & Sidetrack',
+      url: '/music/song1.mp3',
+      coverImage: '/images/cover1.jpg',
+    },
+    {
+      title: 'Bring Me Back',
+      artist: 'zekk',
+      url: '/music/song2.mp3',
+      coverImage: '/images/cover2.jpg',
+    },
+    {
+      title: 'Highscore',
+      artist: 'Teminite & Panda Eyes',
+      url: '/music/song3.mp3',
+      coverImage: '/images/cover3.jpg',
+    },
+    {
+      title: 'AbsoluTe disoRdeR',
+      artist: 'Acute Disarray',
+      url: '/music/song4.mp3',
+      coverImage: '/images/cover4.png',
+    },
+    {
+      title: 'I Really Want to Stay at Your House',
+      artist: 'Samuel Kim  Lorien ',
+      url: '/music/song5.mp3',
+      coverImage: '/images/cover5.jpg',
+    },
+    
+  ];
+
+  // 格式化时间
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // 处理进度条拖动
+  const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value);
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
+
+  // 监听音频时间更新
+  useEffect(() => {
+    if (audioRef.current) {
+      const audio = audioRef.current;
+
+      const handleTimeUpdate = () => {
+        setCurrentTime(audio.currentTime);
+      };
+
+      const handleLoadedMetadata = () => {
+        setDuration(audio.duration);
+      };
+
+      audio.addEventListener('timeupdate', handleTimeUpdate);
+      audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+
+      return () => {
+        audio.removeEventListener('timeupdate', handleTimeUpdate);
+        audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      };
+    }
+  }, []);
+
+  const togglePlay = async () => {
+    if (audioRef.current) {
+      try {
+        if (isPlaying) {
+          await audioRef.current.pause();
+        } else {
+          await audioRef.current.play();
+        }
+        setIsPlaying(!isPlaying);
+      } catch (error) {
+        console.error('播放出错:', error);
+      }
+    }
+  };
+
+  const playNext = () => {
+    setCurrentSongIndex((prev) => (prev + 1) % playlist.length);
+  };
+
+  const playPrev = () => {
+    setCurrentSongIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume;
+    }
+  };
+
+  const handleClick = () => {
+    if (clickTimeoutRef.current) {
+      // 双击
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+      setIsFullyExpanded(true);
+      setIsExpanded(true);
+    } else {
+      // 单击
+      clickTimeoutRef.current = setTimeout(() => {
+        setIsExpanded(!isExpanded);
+        clickTimeoutRef.current = null;
+      }, 200);
+    }
+  };
+
+  // 处理全屏模式的关闭
+  const handleCloseFullScreen = () => {
+    setIsFullyExpanded(false);
+  };
+
+  // 处理音频加载
+  useEffect(() => {
+    if (audioRef.current) {
+      const audio = audioRef.current;
+      
+      // 设置音频属性
+      audio.src = playlist[currentSongIndex].url;
+      audio.volume = volume;
+      setIsLoading(true);
+
+      // 音频加载完成后的处理
+      const handleCanPlay = () => {
+        setIsLoading(false);
+        if (isPlaying) {
+          audio.play()
+            .catch(error => {
+              console.error('播放出错:', error);
+              setIsPlaying(false);
+            });
+        }
+      };
+
+      // 音频结束后的处理
+      const handleEnded = () => {
+        playNext();
+      };
+
+      // 添加事件监听
+      audio.addEventListener('canplay', handleCanPlay);
+      audio.addEventListener('ended', handleEnded);
+
+      // 清理函数
+      return () => {
+        audio.removeEventListener('canplay', handleCanPlay);
+        audio.removeEventListener('ended', handleEnded);
+      };
+    }
+  }, [currentSongIndex]);
+
+  // 监听音量变化
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
+
+  // 监听播放状态变化
+  useEffect(() => {
+    if (audioRef.current) {
+      const audio = audioRef.current;
+      if (isPlaying) {
+        audio.play().catch(error => {
+          console.error('播放出错:', error);
+          setIsPlaying(false);
+        });
+      } else {
+        audio.pause();
+      }
+    }
+  }, [isPlaying]);
+
+  // 组件卸载时清理音频上下文
+  useEffect(() => {
+    return () => {
+      audioContextManager.cleanup();
+    };
+  }, []);
+
+  return (
+    <>
+      {/* 全屏遮罩 */}
+      <AnimatePresence>
+        {isFullyExpanded && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-lg z-40"
+            onClick={handleCloseFullScreen}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 音乐播放器 */}
+      <motion.div
+        initial={{ x: '100%' }}
+        animate={{ 
+          x: 0,
+          scale: isFullyExpanded ? 1 : 1,
+          transition: { type: "spring", stiffness: 100 }
+        }}
+        className={`fixed z-50 ${
+          isFullyExpanded 
+            ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2' 
+            : 'bottom-8 right-8'
+        }`}
+      >
+        <motion.div
+          className={`bg-white/90 backdrop-blur-lg rounded-2xl shadow-lg ${
+            isFullyExpanded ? 'w-[800px] h-[500px]' : 'p-4'
+          }`}
+          whileHover={{ scale: isFullyExpanded ? 1 : 1.02 }}
+          whileTap={{ scale: isFullyExpanded ? 1 : 0.98 }}
+        >
+          {isFullyExpanded ? (
+            // 完全展开的界面
+            <div className="relative w-full h-full p-8">
+              <AudioVisualizer audioRef={audioRef} />
+              
+              <div className="relative z-10 flex flex-col items-center">
+                {/* 大型封面图 */}
+                <motion.div
+                  className="relative w-64 h-64 rounded-full overflow-hidden mb-8"
+                  animate={{
+                    rotate: isPlaying ? 360 : 0
+                  }}
+                  transition={{
+                    duration: 8,
+                    repeat: Infinity,
+                    ease: "linear",
+                    repeatType: "loop"
+                  }}
+                >
+                  <Image
+                    src={playlist[currentSongIndex].coverImage}
+                    alt="Album Cover"
+                    fill
+                    className="object-cover"
+                  />
+                </motion.div>
+
+                {/* 歌曲信息 */}
+                <div className="text-center mb-8">
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {playlist[currentSongIndex].title}
+                  </h2>
+                  <p className="text-lg text-gray-600">
+                    {playlist[currentSongIndex].artist}
+                  </p>
+                </div>
+
+                {/* 进度条 */}
+                <div className="w-full max-w-xl mt-8 space-y-2">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>{formatTime(currentTime)}</span>
+                    <span>{formatTime(duration)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={duration || 0}
+                    value={currentTime}
+                    onChange={handleProgressChange}
+                    className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    style={{
+                      background: `linear-gradient(to right, #2563eb ${(currentTime / duration) * 100}%, #d1d5db ${(currentTime / duration) * 100}%)`
+                    }}
+                  />
+                </div>
+
+                {/* 控制按钮 */}
+                <div className="flex items-center space-x-6">
+                  <motion.button
+                    onClick={playPrev}
+                    className="p-3 hover:text-blue-600"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    disabled={isLoading}
+                  >
+                    <svg
+                      className="w-8 h-8"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                      />
+                    </svg>
+                  </motion.button>
+
+                  <motion.button
+                    onClick={togglePlay}
+                    className="p-3 hover:text-blue-600"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    disabled={isLoading}
+                  >
+                    {isPlaying ? (
+                      <svg
+                        className="w-12 h-12"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className="w-12 h-12"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    )}
+                  </motion.button>
+
+                  <motion.button
+                    onClick={playNext}
+                    className="p-3 hover:text-blue-600"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    disabled={isLoading}
+                  >
+                    <svg
+                      className="w-8 h-8"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                      />
+                    </svg>
+                  </motion.button>
+                </div>
+
+                {/* 音量控制 */}
+                <div className="flex items-center space-x-4 mt-8">
+                  <svg
+                    className="w-6 h-6 text-gray-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M12 18l-4-4H4a1 1 0 01-1-1V11a1 1 0 011-1h4l4-4v12z"
+                    />
+                  </svg>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={volume}
+                    onChange={handleVolumeChange}
+                    className="w-32 h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                {/* 关闭按钮 */}
+                <motion.button
+                  onClick={handleCloseFullScreen}
+                  className="absolute top-4 right-4 p-2 text-gray-600 hover:text-gray-900"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </motion.button>
+              </div>
+            </div>
+          ) : (
+            // 原始/一级展开界面
+            <div className="flex items-center space-x-4">
+              <motion.div
+                className="relative w-10 h-10 rounded-full overflow-hidden cursor-pointer group"
+                animate={{
+                  rotate: isPlaying ? 360 : 0
+                }}
+                transition={{
+                  duration: 8,
+                  repeat: Infinity,
+                  ease: "linear",
+                  repeatType: "loop"
+                }}
+                onClick={handleClick}
+              >
+                <Image
+                  src={playlist[currentSongIndex].coverImage}
+                  alt="Album Cover"
+                  fill
+                  className="object-cover"
+                />
+                {/* 悬浮提示 */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  whileHover={{ opacity: 1 }}
+                  className="absolute inset-0 flex items-center justify-center bg-black/30 text-white text-xs font-medium"
+                >
+                  {isExpanded ? (isFullyExpanded ? '点击收起' : '双击展开') : '点击展开'}
+                </motion.div>
+              </motion.div>
+
+              <AnimatePresence>
+                {isExpanded && (
+                  <motion.div
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: 'auto', opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    className="flex flex-col space-y-2"
+                  >
+                    <div className="flex items-center space-x-4 overflow-hidden">
+                      <div className="min-w-[200px]">
+                        <p className="font-medium text-gray-900">
+                          {playlist[currentSongIndex].title}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          {playlist[currentSongIndex].artist}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <motion.button
+                          onClick={playPrev}
+                          className="p-2 hover:text-blue-600"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          disabled={isLoading}
+                        >
+                          <svg
+                            className="w-6 h-6"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                            />
+                          </svg>
+                        </motion.button>
+
+                        <motion.button
+                          onClick={togglePlay}
+                          className="p-2 hover:text-blue-600"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          disabled={isLoading}
+                        >
+                          {isPlaying ? (
+                            <svg
+                              className="w-6 h-6"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                              />
+                            </svg>
+                          ) : (
+                            <svg
+                              className="w-6 h-6"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                              />
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                              />
+                            </svg>
+                          )}
+                        </motion.button>
+
+                        <motion.button
+                          onClick={playNext}
+                          className="p-2 hover:text-blue-600"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          disabled={isLoading}
+                        >
+                          <svg
+                            className="w-6 h-6"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                            />
+                          </svg>
+                        </motion.button>
+                      </div>
+                    </div>
+
+                    {/* 简洁进度条 */}
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-gray-600">{formatTime(currentTime)}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max={duration || 0}
+                        value={currentTime}
+                        onChange={handleProgressChange}
+                        className="w-48 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        style={{
+                          background: `linear-gradient(to right, #2563eb ${(currentTime / duration) * 100}%, #d1d5db ${(currentTime / duration) * 100}%)`
+                        }}
+                      />
+                      <span className="text-xs text-gray-600">{formatTime(duration)}</span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </motion.div>
+      </motion.div>
+      <audio ref={audioRef} />
+    </>
+  );
+} 
