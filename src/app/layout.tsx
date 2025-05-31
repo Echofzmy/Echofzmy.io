@@ -1,19 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import dynamic from 'next/dynamic';
 import "./globals.css";
 import Navbar from "@/components/Navbar";
-
-// 动态导入组件
-const MusicPlayer = dynamic(() => import("@/components/MusicPlayer"), {
-  ssr: false,
-  loading: () => null
-});
-
-const BackgroundAnimation = dynamic(() => import("@/components/BackgroundAnimation"), {
-  ssr: false,
-  loading: () => null
-});
+import { DynamicMusicPlayer, DynamicBackgroundAnimation } from "@/components/ClientComponents";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -41,10 +30,10 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className={inter.className}>
-        <BackgroundAnimation />
+        <DynamicBackgroundAnimation />
         <Navbar />
         {children}
-        <MusicPlayer />
+        <DynamicMusicPlayer />
       </body>
     </html>
   );
