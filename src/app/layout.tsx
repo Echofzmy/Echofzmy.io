@@ -8,7 +8,7 @@ import BackgroundAnimation from "@/components/BackgroundAnimation";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "我的个人网站",
+  title: "梁宇澄的个人网站",
   description: "个人网站展示作品和技能",
 };
 
