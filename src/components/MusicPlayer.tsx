@@ -313,7 +313,7 @@ export default function MusicPlayer() {
         audio.removeEventListener('ended', handleEnded);
       };
     }
-  }, [currentSongIndex]);
+  }, [currentSongIndex, isPlaying, playNext, playlist, volume]);
 
   // 监听音量变化
   useEffect(() => {
