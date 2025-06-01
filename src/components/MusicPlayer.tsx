@@ -162,11 +162,10 @@ export default function MusicPlayer() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playMode, setPlayMode] = useState<PlayMode>('sequential');
-  const [showPlaylist, setShowPlaylist] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // 使用 useMemo 缓存播放列表
-  const playlist = useMemo(() => [
+  const playlist: Song[] = useMemo(() => [
     {
       title: 'Under Bright Lights (ft. Indy Skies)',
       artist: 'TWERL & Ekko & Sidetrack',
