@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 
@@ -165,8 +165,8 @@ export default function MusicPlayer() {
   const [showPlaylist, setShowPlaylist] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // 示例歌单，你可以替换为自己的歌单
-  const playlist: Song[] = [
+  // 使用 useMemo 缓存播放列表
+  const playlist = useMemo(() => [
     {
       title: 'Under Bright Lights (ft. Indy Skies)',
       artist: 'TWERL & Ekko & Sidetrack',
@@ -215,8 +215,42 @@ export default function MusicPlayer() {
       url: '/music/song8.mp3',
       coverImage: '/images/cover8.jpg',
     },
-    
-  ];
+  ], []);
+
+  // 使用 useCallback 缓存函数
+  const togglePlay = useCallback(async () => {
+    if (audioRef.current) {
+      try {
+        if (isPlaying) {
+          await audioRef.current.pause();
+        } else {
+          await audioRef.current.play();
+        }
+        setIsPlaying(!isPlaying);
+      } catch (error) {
+        console.error('播放出错:', error);
+      }
+    }
+  }, [isPlaying]);
+
+  const getNextSongIndex = useCallback(() => {
+    switch (playMode) {
+      case 'sequential':
+        return (currentSongIndex + 1) % playlist.length;
+      case 'random':
+        return Math.floor(Math.random() * playlist.length);
+      case 'single':
+        return currentSongIndex;
+    }
+  }, [currentSongIndex, playMode, playlist.length]);
+
+  const playNext = useCallback(() => {
+    setCurrentSongIndex(getNextSongIndex());
+  }, [getNextSongIndex]);
+
+  const playPrev = useCallback(() => {
+    setCurrentSongIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
+  }, [playlist.length]);
 
   // 格式化时间
   const formatTime = (time: number) => {
@@ -257,77 +291,7 @@ export default function MusicPlayer() {
     }
   }, []);
 
-  const togglePlay = async () => {
-    if (audioRef.current) {
-      try {
-        if (isPlaying) {
-          await audioRef.current.pause();
-        } else {
-          await audioRef.current.play();
-        }
-        setIsPlaying(!isPlaying);
-      } catch (error) {
-        console.error('播放出错:', error);
-      }
-    }
-  };
-
-  // 处理播放模式切换
-  const togglePlayMode = () => {
-    setPlayMode(current => {
-      switch (current) {
-        case 'sequential': return 'random';
-        case 'random': return 'single';
-        case 'single': return 'sequential';
-      }
-    });
-  };
-
-  // 获取下一首歌的索引
-  const getNextSongIndex = () => {
-    switch (playMode) {
-      case 'sequential':
-        return (currentSongIndex + 1) % playlist.length;
-      case 'random':
-        return Math.floor(Math.random() * playlist.length);
-      case 'single':
-        return currentSongIndex;
-    }
-  };
-
-  // 修改 playNext 函数
-  const playNext = () => {
-    setCurrentSongIndex(getNextSongIndex());
-  };
-
-  const playPrev = () => {
-    setCurrentSongIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value);
-    setVolume(newVolume);
-    if (audioRef.current) {
-      audioRef.current.volume = newVolume;
-    }
-  };
-
-  const handleClick = () => {
-    setIsExpanded(!isExpanded);
-  };
-
-  // 处理全屏模式的打开
-  const handleOpenFullScreen = () => {
-    setIsFullyExpanded(true);
-    setIsExpanded(true);
-  };
-
-  // 处理全屏模式的关闭
-  const handleCloseFullScreen = () => {
-    setIsFullyExpanded(false);
-  };
-
-  // 处理音频加载
+  // 修复 useEffect 依赖
   useEffect(() => {
     if (audioRef.current) {
       const audio = audioRef.current;
@@ -337,7 +301,6 @@ export default function MusicPlayer() {
       audio.volume = volume;
       setIsLoading(true);
 
-      // 音频加载完成后的处理
       const handleCanPlay = () => {
         setIsLoading(false);
         if (isPlaying) {
@@ -349,22 +312,19 @@ export default function MusicPlayer() {
         }
       };
 
-      // 音频结束后的处理
       const handleEnded = () => {
         playNext();
       };
 
-      // 添加事件监听
       audio.addEventListener('canplay', handleCanPlay);
       audio.addEventListener('ended', handleEnded);
 
-      // 清理函数
       return () => {
         audio.removeEventListener('canplay', handleCanPlay);
         audio.removeEventListener('ended', handleEnded);
       };
     }
-  }, [currentSongIndex]);
+  }, [currentSongIndex, isPlaying, playNext, playlist, volume]);
 
   // 监听音量变化
   useEffect(() => {
@@ -395,7 +355,7 @@ export default function MusicPlayer() {
     };
   }, []);
 
-  // 键盘快捷键控制
+  // 修复键盘快捷键 useEffect 依赖
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       if (!isFullyExpanded) return;
@@ -426,7 +386,30 @@ export default function MusicPlayer() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [isFullyExpanded, volume]);
+  }, [isFullyExpanded, volume, togglePlay, playNext, playPrev]);
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume;
+    }
+  };
+
+  const handleClick = () => {
+    setIsExpanded(!isExpanded);
+  };
+
+  // 处理全屏模式的打开
+  const handleOpenFullScreen = () => {
+    setIsFullyExpanded(true);
+    setIsExpanded(true);
+  };
+
+  // 处理全屏模式的关闭
+  const handleCloseFullScreen = () => {
+    setIsFullyExpanded(false);
+  };
 
   return (
     <>
@@ -506,7 +489,13 @@ export default function MusicPlayer() {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold">播放列表</h3>
                     <button
-                      onClick={togglePlayMode}
+                      onClick={() => setPlayMode(current => {
+                        switch (current) {
+                          case 'sequential': return 'random';
+                          case 'random': return 'single';
+                          case 'single': return 'sequential';
+                        }
+                      })}
                       className="p-2 hover:text-blue-600 tooltip"
                       title={playMode === 'sequential' ? '顺序播放' : playMode === 'random' ? '随机播放' : '单曲循环'}
                     >
