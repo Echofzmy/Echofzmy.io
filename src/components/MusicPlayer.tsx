@@ -339,7 +339,7 @@ export default function MusicPlayer() {
         audio.pause();
       }
     }
-  }, [isPlaying]);
+  }, [isPlaying, volume, playlist, playNext]);
 
   // 组件卸载时清理音频上下文
   useEffect(() => {
