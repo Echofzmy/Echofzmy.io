@@ -237,11 +237,25 @@ export default function MusicPlayer() {
       case 'sequential':
         return (currentSongIndex + 1) % playlist.length;
       case 'random':
-        return Math.floor(Math.random() * playlist.length);
+        // 避免随机到当前歌曲
+        let nextIndex;
+        do {
+          nextIndex = Math.floor(Math.random() * playlist.length);
+        } while (nextIndex === currentSongIndex && playlist.length > 1);
+        return nextIndex;
       case 'single':
         return currentSongIndex;
     }
   }, [currentSongIndex, playMode, playlist.length]);
+
+  // 处理播放模式切换
+  const handlePlayModeChange = useCallback(() => {
+    setPlayMode(current => {
+      const newMode = current === 'sequential' ? 'random' : current === 'random' ? 'single' : 'sequential';
+      // 切换模式时不改变当前播放状态
+      return newMode;
+    });
+  }, []);
 
   const playNext = useCallback(() => {
     setCurrentSongIndex(getNextSongIndex());
@@ -488,13 +502,7 @@ export default function MusicPlayer() {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold">播放列表</h3>
                     <button
-                      onClick={() => setPlayMode(current => {
-                        switch (current) {
-                          case 'sequential': return 'random';
-                          case 'random': return 'single';
-                          case 'single': return 'sequential';
-                        }
-                      })}
+                      onClick={handlePlayModeChange}
                       className="p-2 hover:text-blue-600 tooltip"
                       title={playMode === 'sequential' ? '顺序播放' : playMode === 'random' ? '随机播放' : '单曲循环'}
                     >
